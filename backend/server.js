@@ -112,6 +112,30 @@ app.get("/api/logs", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+async function createTableIfNotExists() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id SERIAL PRIMARY KEY,
+        session_id VARCHAR(255) NOT NULL,
+        user_message TEXT NOT NULL,
+        bot_reply TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    console.log("chat_messages table is ready.");
+  } catch (error) {
+    console.error("Failed to create table:", error);
+  }
+}
+
+async function startServer() {
+  await createTableIfNotExists();
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+startServer();
