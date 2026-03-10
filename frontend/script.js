@@ -1,4 +1,4 @@
-const API_BASE_URL = "https://ai-chatbot-project-ukge.onrender.com";
+const API_BASE_URL = "https://ai-chatbot-backend-sata.onrender.com";
 
 const messages = document.getElementById("messages");
 const typing = document.getElementById("typing");
