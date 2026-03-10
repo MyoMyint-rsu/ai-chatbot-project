@@ -1,1 +1,7 @@
-
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(255) NOT NULL,
+  user_message TEXT NOT NULL,
+  bot_reply TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
