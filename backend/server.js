@@ -2,7 +2,6 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import pkg from "pg";
-import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
@@ -17,7 +16,6 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const PORT = process.env.PORT || 10000;
 
@@ -134,29 +132,42 @@ app.post("/api/chat", async (req, res) => {
     if (faqMatch) {
       reply = faqMatch.answer;
       source = "database";
-    } else {
-      const prompt = `
+      } else {
+      const systemPrompt = `
 You are a helpful AI assistant for a local T-shirt shop.
 
 If the user asks a general question, answer clearly and politely.
 If exact business information is not available in the knowledge base, do not invent details.
-
-Customer question: ${message}
       `;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: prompt
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": process.env.FRONTEND_URL || "",
+          "X-OpenRouter-Title": "AI FAQ Chatbot"
+        },
+        body: JSON.stringify({
+          model: "openrouter/auto",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: message }
+          ]
+        })
       });
 
-      console.log("Gemini raw response:", JSON.stringify(response, null, 2));
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error?.message || "OpenRouter request failed");
+      }
 
       reply =
-        response?.text ||
-        response?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        data?.choices?.[0]?.message?.content ||
         "Sorry, I could not generate a response.";
 
-      source = "gemini";
+      source = "openrouter";
     }
 
     await pool.query(
