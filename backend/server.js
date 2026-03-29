@@ -40,9 +40,13 @@ async function createTables() {
       session_id VARCHAR(255),
       user_message TEXT NOT NULL,
       bot_reply TEXT NOT NULL,
-      answer_source VARCHAR(50),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE chat_messages
+    ADD COLUMN IF NOT EXISTS answer_source VARCHAR(50)
   `);
 
   console.log("Database ready");
