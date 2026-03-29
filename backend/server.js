@@ -1,152 +1,122 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { GoogleGenAI } from "@google/genai";
-import { pool } from "./db.js";
+import pkg from "pg";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 dotenv.config();
 
+const { Pool } = pkg;
 const app = express();
-const PORT = process.env.PORT || 10000;
-const allowedOrigin = process.env.FRONTEND_URL || "*";
 
-app.use(cors({ origin: allowedOrigin }));
+app.use(cors());
 app.use(express.json());
 
-if (!process.env.GEMINI_API_KEY) {
-  console.error("Missing GEMINI_API_KEY");
-  process.exit(1);
-}
-
-if (!process.env.DATABASE_URL) {
-  console.error("Missing DATABASE_URL");
-  process.exit(1);
-}
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
 });
 
-const SYSTEM_PROMPT = `
-You are an AI FAQ assistant for a local T-shirt shop.
-Answer clearly, briefly, and politely.
+const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-You can help with:
-- product sizes
-- delivery
-- customization
-- payment
-- returns
-- order support
+const PORT = process.env.PORT || 10000;
 
-If the question is outside the T-shirt shop FAQ scope, say:
-"This question should be escalated to staff for manual support."
+async function createTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS faq_items (
+      id SERIAL PRIMARY KEY,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      keywords TEXT NOT NULL,
+      category VARCHAR(100),
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
-Do not invent fake store policies.
-Keep answers easy for customers to understand.
-`;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id SERIAL PRIMARY KEY,
+      session_id VARCHAR(255),
+      user_message TEXT NOT NULL,
+      bot_reply TEXT NOT NULL,
+      answer_source VARCHAR(50),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
-app.get("/", (req, res) => {
-  res.json({ message: "Backend is running." });
-});
-
-app.get("/api/health", async (req, res) => {
-  try {
-    await pool.query("SELECT 1");
-    res.json({ ok: true, database: "connected" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ ok: false, error: "Database connection failed" });
+  // Insert default FAQ if empty
+  const check = await pool.query(`SELECT COUNT(*) FROM faq_items`);
+  if (parseInt(check.rows[0].count) === 0) {
+    await pool.query(`
+      INSERT INTO faq_items (question, answer, keywords, category)
+      VALUES
+      ('What sizes do you have?', 'We offer sizes S, M, L, XL, XXL.', 'size,sizes,tshirt size', 'product'),
+      ('How long does delivery take?', 'Delivery takes 3-5 business days.', 'delivery,shipping,time', 'delivery'),
+      ('Can I customize my T-shirt?', 'Yes, customization is available.', 'customize,custom design', 'customization'),
+      ('What payment methods do you accept?', 'We accept COD, bank transfer, and online payment.', 'payment,pay', 'payment'),
+      ('What is your return policy?', 'Returns allowed within 7 days.', 'return,refund,exchange', 'returns')
+    `);
   }
-});
+
+  console.log("Database ready");
+}
+
+async function findFAQ(message) {
+  const text = message.toLowerCase();
+
+  const result = await pool.query(`SELECT * FROM faq_items`);
+
+  for (const row of result.rows) {
+    const keywords = row.keywords.split(",").map(k => k.trim());
+
+    for (const keyword of keywords) {
+      if (text.includes(keyword)) {
+        return row.answer;
+      }
+    }
+  }
+
+  return null;
+}
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message, sessionId } = req.body;
-
-    if (!message || !message.trim()) {
-      return res.status(400).json({ error: "Message is required." });
-    }
-
-    const prompt = `${SYSTEM_PROMPT}\n\nCustomer question: ${message}`;
+    const { message } = req.body;
 
     let reply = "";
+    let source = "";
 
-    try {
+    const faq = await findFAQ(message);
+
+    if (faq) {
+      reply = faq;
+      source = "database";
+    } else {
       const response = await ai.models.generateContent({
         model: "gemini-2.0-flash",
-        contents: prompt
+        contents: message
       });
 
-      reply = response.text || "Sorry, I could not generate a response.";
-    } catch (geminiError) {
-      console.error("Gemini error:", geminiError);
-      return res.status(500).json({
-        error: "Gemini API failed."
-      });
+      reply = response.text || "No response";
+      source = "gemini";
     }
 
-    try {
-      await pool.query(
-        `
-        INSERT INTO chat_messages (session_id, user_message, bot_reply)
-        VALUES ($1, $2, $3)
-        `,
-        [sessionId || "anonymous", message, reply]
-      );
-    } catch (dbError) {
-      console.error("Database insert error:", dbError);
-    }
-
-    res.json({ reply });
-  } catch (error) {
-    console.error("Chat route error:", error);
-    res.status(500).json({ error: "Server error." });
-  }
-});
-
-app.get("/api/logs", async (req, res) => {
-  try {
-    const result = await pool.query(
-      `
-      SELECT id, session_id, user_message, bot_reply, created_at
-      FROM chat_messages
-      ORDER BY created_at DESC
-      LIMIT 20
-      `
+    await pool.query(
+      `INSERT INTO chat_messages (session_id, user_message, bot_reply, answer_source)
+       VALUES ($1, $2, $3, $4)`,
+      ["user", message, reply, source]
     );
 
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Logs error:", error);
-    res.status(500).json({ error: "Failed to fetch logs." });
+    res.json({ reply });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Chat failed" });
   }
 });
 
-async function createTableIfNotExists() {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS chat_messages (
-        id SERIAL PRIMARY KEY,
-        session_id VARCHAR(255) NOT NULL,
-        user_message TEXT NOT NULL,
-        bot_reply TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    console.log("chat_messages table is ready.");
-  } catch (error) {
-    console.error("Failed to create table:", error);
-  }
-}
-
-async function startServer() {
-  await createTableIfNotExists();
-
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
-
-startServer();
+app.listen(PORT, async () => {
+  await createTables();
+  console.log("Server running");
+});
