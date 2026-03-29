@@ -149,7 +149,13 @@ Customer question: ${message}
         contents: prompt
       });
 
-      reply = response.text || "Sorry, I could not generate a response.";
+      console.log("Gemini raw response:", JSON.stringify(response, null, 2));
+
+      reply =
+        response?.text ||
+        response?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        "Sorry, I could not generate a response.";
+
       source = "gemini";
     }
 
@@ -164,7 +170,9 @@ Customer question: ${message}
     res.json({ reply, source });
   } catch (err) {
     console.error("Chat error:", err);
-    res.status(500).json({ error: "Chat failed" });
+    res.status(500).json({
+      error: err.message || "Chat failed"
+    });
   }
 });
 
