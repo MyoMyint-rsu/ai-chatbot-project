@@ -70,27 +70,38 @@ app.post("/api/chat", async (req, res) => {
 
     const prompt = `${SYSTEM_PROMPT}\n\nCustomer question: ${message}`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt
-    });
+    let reply = "";
 
-    const reply = response.text || "Sorry, I could not generate a response.";
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.0-flash",
+        contents: prompt
+      });
 
-    await pool.query(
-      `
-      INSERT INTO chat_messages (session_id, user_message, bot_reply)
-      VALUES ($1, $2, $3)
-      `,
-      [sessionId || "anonymous", message, reply]
-    );
+      reply = response.text || "Sorry, I could not generate a response.";
+    } catch (geminiError) {
+      console.error("Gemini error:", geminiError);
+      return res.status(500).json({
+        error: "Gemini API failed."
+      });
+    }
+
+    try {
+      await pool.query(
+        `
+        INSERT INTO chat_messages (session_id, user_message, bot_reply)
+        VALUES ($1, $2, $3)
+        `,
+        [sessionId || "anonymous", message, reply]
+      );
+    } catch (dbError) {
+      console.error("Database insert error:", dbError);
+    }
 
     res.json({ reply });
   } catch (error) {
-    console.error("Chat error:", error);
-    res.status(500).json({
-      error: "Failed to get response from Gemini."
-    });
+    console.error("Chat route error:", error);
+    res.status(500).json({ error: "Server error." });
   }
 });
 
