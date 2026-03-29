@@ -45,34 +45,27 @@ async function createTables() {
     )
   `);
 
-  // Insert default FAQ if empty
-  const check = await pool.query(`SELECT COUNT(*) FROM faq_items`);
-  if (parseInt(check.rows[0].count) === 0) {
-    await pool.query(`
-      INSERT INTO faq_items (question, answer, keywords, category)
-      VALUES
-      ('What sizes do you have?', 'We offer sizes S, M, L, XL, XXL.', 'size,sizes,tshirt size', 'product'),
-      ('How long does delivery take?', 'Delivery takes 3-5 business days.', 'delivery,shipping,time', 'delivery'),
-      ('Can I customize my T-shirt?', 'Yes, customization is available.', 'customize,custom design', 'customization'),
-      ('What payment methods do you accept?', 'We accept COD, bank transfer, and online payment.', 'payment,pay', 'payment'),
-      ('What is your return policy?', 'Returns allowed within 7 days.', 'return,refund,exchange', 'returns')
-    `);
-  }
-
   console.log("Database ready");
 }
 
 async function findFAQ(message) {
   const text = message.toLowerCase();
 
-  const result = await pool.query(`SELECT * FROM faq_items`);
+  const result = await pool.query(`
+    SELECT id, question, answer, keywords, category
+    FROM faq_items
+    WHERE is_active = TRUE
+    ORDER BY id ASC
+  `);
 
   for (const row of result.rows) {
-    const keywords = row.keywords.split(",").map(k => k.trim());
+    const keywords = row.keywords
+      .split(",")
+      .map(k => k.trim().toLowerCase());
 
     for (const keyword of keywords) {
       if (text.includes(keyword)) {
-        return row.answer;
+        return row;
       }
     }
   }
@@ -80,38 +73,93 @@ async function findFAQ(message) {
   return null;
 }
 
+app.get("/api/faq", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, question, answer, keywords, category, is_active, created_at
+      FROM faq_items
+      ORDER BY id ASC
+    `);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("FAQ fetch error:", error);
+    res.status(500).json({ error: "Failed to fetch FAQ data." });
+  }
+});
+
+app.post("/api/faq", async (req, res) => {
+  try {
+    const { question, answer, keywords, category } = req.body;
+
+    if (!question || !answer || !keywords) {
+      return res.status(400).json({
+        error: "question, answer, and keywords are required."
+      });
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO faq_items (question, answer, keywords, category)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+      `,
+      [question, answer, keywords, category || null]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("FAQ insert error:", error);
+    res.status(500).json({ error: "Failed to insert FAQ data." });
+  }
+});
+
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, sessionId } = req.body;
+
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: "Message is required." });
+    }
 
     let reply = "";
     let source = "";
 
-    const faq = await findFAQ(message);
+    const faqMatch = await findFAQ(message);
 
-    if (faq) {
-      reply = faq;
+    if (faqMatch) {
+      reply = faqMatch.answer;
       source = "database";
     } else {
+      const prompt = `
+You are a helpful AI assistant for a local T-shirt shop.
+
+If the user asks a general question, answer clearly and politely.
+If exact business information is not available in the knowledge base, do not invent details.
+
+Customer question: ${message}
+      `;
+
       const response = await ai.models.generateContent({
         model: "gemini-2.0-flash",
-        contents: message
+        contents: prompt
       });
 
-      reply = response.text || "No response";
+      reply = response.text || "Sorry, I could not generate a response.";
       source = "gemini";
     }
 
     await pool.query(
-      `INSERT INTO chat_messages (session_id, user_message, bot_reply, answer_source)
-       VALUES ($1, $2, $3, $4)`,
-      ["user", message, reply, source]
+      `
+      INSERT INTO chat_messages (session_id, user_message, bot_reply, answer_source)
+      VALUES ($1, $2, $3, $4)
+      `,
+      [sessionId || "anonymous", message, reply, source]
     );
 
-    res.json({ reply });
-
+    res.json({ reply, source });
   } catch (err) {
-    console.error(err);
+    console.error("Chat error:", err);
     res.status(500).json({ error: "Chat failed" });
   }
 });
