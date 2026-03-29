@@ -63,13 +63,19 @@ async function sendMessage(question) {
       })
     });
 
-    const data = await response.json();
-    typing.hidden = true;
+let data = {};
+try {
+  data = await response.json();
+} catch (e) {
+  data = {};
+}
 
-    if (!response.ok) {
-      addMessage(data.error || "Something went wrong.", "bot");
-      return;
-    }
+typing.hidden = true;
+
+if (!response.ok) {
+  addMessage(data.error || "Something went wrong.", "bot");
+  return;
+}
 
     addMessage(data.reply, "bot");
     addLog(userText, data.reply);
