@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAQ Admin</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f6f9;
+      margin: 0;
+      padding: 30px;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
+
+    h1, h2 {
+      margin-top: 0;
+    }
+
+    label {
+      display: block;
+      margin-top: 14px;
+      margin-bottom: 6px;
+      font-weight: bold;
+    }
+
+    input, textarea {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      box-sizing: border-box;
+      font-size: 16px;
+    }
+
+    textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    button {
+      margin-top: 18px;
+      padding: 12px 18px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      opacity: 0.95;
+    }
+
+    #message {
+      margin-top: 16px;
+      font-weight: bold;
+    }
+
+    .faq-list {
+      margin-top: 28px;
+      border-top: 1px solid #ddd;
+      padding-top: 20px;
+    }
+
+    .faq-item {
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>FAQ Admin Page</h1>
+
+    <label for="question">Question</label>
+    <input id="question" type="text" placeholder="What sizes do you have?" />
+
+    <label for="answer">Answer</label>
+    <textarea id="answer" placeholder="We offer T-shirt sizes S, M, L, XL, and XXL."></textarea>
+
+    <label for="keywords">Keywords</label>
+    <input id="keywords" type="text" placeholder="size,sizes,tshirt size,shirt size" />
+
+    <label for="category">Category</label>
+    <input id="category" type="text" placeholder="product" />
+
+    <button id="saveBtn">Add FAQ</button>
+
+    <div id="message"></div>
+
+    <div class="faq-list">
+      <h2>Saved FAQ Data</h2>
+      <div id="faqList">Loading...</div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE_URL = "https://ai-chatbot-backend-sata.onrender.com";
+
+    const questionInput = document.getElementById("question");
+    const answerInput = document.getElementById("answer");
+    const keywordsInput = document.getElementById("keywords");
+    const categoryInput = document.getElementById("category");
+    const saveBtn = document.getElementById("saveBtn");
+    const messageBox = document.getElementById("message");
+    const faqList = document.getElementById("faqList");
+
+    async function loadFAQs() {
+      faqList.innerHTML = "Loading...";
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/faq`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          faqList.innerHTML = "Failed to load FAQ data.";
+          return;
+        }
+
+        if (!data.length) {
+          faqList.innerHTML = "No FAQ data yet.";
+          return;
+        }
+
+        faqList.innerHTML = "";
+
+        data.forEach(item => {
+          const div = document.createElement("div");
+          div.className = "faq-item";
+          div.innerHTML = `
+            <strong>Question:</strong> ${item.question}<br>
+            <strong>Answer:</strong> ${item.answer}<br>
+            <strong>Keywords:</strong> ${item.keywords}<br>
+            <strong>Category:</strong> ${item.category || "-"}
+          `;
+          faqList.appendChild(div);
+        });
+      } catch (error) {
+        faqList.innerHTML = "Connection error while loading FAQ data.";
+      }
+    }
+
+    async function addFAQ() {
+      const question = questionInput.value.trim();
+      const answer = answerInput.value.trim();
+      const keywords = keywordsInput.value.trim();
+      const category = categoryInput.value.trim();
+
+      if (!question || !answer || !keywords) {
+        messageBox.textContent = "Please fill question, answer, and keywords.";
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/faq`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            question,
+            answer,
+            keywords,
+            category
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          messageBox.textContent = data.error || "Failed to save FAQ.";
+          return;
+        }
+
+        messageBox.textContent = "FAQ added successfully.";
+
+        questionInput.value = "";
+        answerInput.value = "";
+        keywordsInput.value = "";
+        categoryInput.value = "";
+
+        loadFAQs();
+      } catch (error) {
+        messageBox.textContent = "Connection error while saving FAQ.";
+      }
+    }
+
+    saveBtn.addEventListener("click", addFAQ);
+    loadFAQs();
+  </script>
+</body>
+</html>
