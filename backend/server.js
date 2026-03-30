@@ -169,7 +169,7 @@ app.post("/api/chat", async (req, res) => {
 
 if (faqs.length > 0) {
   context = faqs.map((f, i) =>
-    Q${i + 1}: ${f.question}\nA${i + 1}: ${f.answer}
+    `Q${i + 1}: ${f.question}\nA${i + 1}: ${f.answer}
   ).join("\n\n");
 }
       const systemPrompt = `
@@ -211,7 +211,6 @@ ${context}
         "Sorry, I could not generate a response.";
 
         source = faqs.length > 0 ? "rag+openrouter" : "openrouter";
-    }
 
     await pool.query(
       `
