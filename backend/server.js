@@ -87,15 +87,29 @@ async function findRelevantFAQs(message) {
 app.get("/api/faq", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, question, answer, keywords, category, is_active, created_at
+      SELECT question, answer, keywords, category, is_active, created_at
       FROM faq_items
       ORDER BY id ASC
     `);
 
-    res.json(result.rows);
+    const formattedFaq = result.rows.map((faq, index) => {
+      return [
+        `FAQ ${index + 1}`,
+        `Question: ${faq.question}`,
+        `Answer: ${faq.answer}`,
+        `Keywords: ${faq.keywords}`,
+        `Category: ${faq.category || "-"}`,
+        `Active: ${faq.is_active}`,
+        `Created At: ${faq.created_at}`,
+        `----------------------------------------`
+      ].join("\n");
+    }).join("\n\n");
+
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.send(formattedFaq);
   } catch (error) {
     console.error("FAQ fetch error:", error);
-    res.status(500).json({ error: "Failed to fetch FAQ data." });
+    res.status(500).send("Failed to fetch FAQ data.");
   }
 });
 
