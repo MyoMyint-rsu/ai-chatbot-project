@@ -116,6 +116,21 @@ app.post("/api/faq", async (req, res) => {
   }
 });
 
+app.get("/api/logs", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, session_id, user_message, bot_reply, answer_source, created_at
+      FROM chat_messages
+      ORDER BY created_at DESC
+    `);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Log fetch error:", error);
+    res.status(500).json({ error: "Failed to fetch chat logs." });
+  }
+});
+
 app.post("/api/chat", async (req, res) => {
   try {
     const { message, sessionId } = req.body;
