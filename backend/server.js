@@ -50,29 +50,38 @@ async function createTables() {
   console.log("Database ready");
 }
 
-async function findFAQ(message) {
+async function findRelevantFAQs(message) {
   const text = message.toLowerCase();
 
   const result = await pool.query(`
-    SELECT id, question, answer, keywords, category
+    SELECT question, answer, keywords
     FROM faq_items
     WHERE is_active = TRUE
-    ORDER BY id ASC
   `);
+
+  let matches = [];
 
   for (const row of result.rows) {
     const keywords = row.keywords
       .split(",")
       .map(k => k.trim().toLowerCase());
 
+    let score = 0;
+
     for (const keyword of keywords) {
       if (text.includes(keyword)) {
-        return row;
+        score++;
       }
+    }
+
+    if (score > 0) {
+      matches.push({ ...row, score });
     }
   }
 
-  return null;
+  matches.sort((a, b) => b.score - a.score);
+
+  return matches.slice(0, 3);
 }
 
 app.get("/api/faq", async (req, res) => {
@@ -119,17 +128,27 @@ app.post("/api/faq", async (req, res) => {
 app.get("/api/logs", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT user_message, bot_reply, answer_source
+      SELECT user_message, bot_reply, answer_source, created_at
       FROM chat_messages
       ORDER BY created_at DESC
     `);
 
-    res.setHeader("Content-Type", "application/json");
-    res.send(JSON.stringify(result.rows, null, 2));
+    const formattedLogs = result.rows.map((log, index) => {
+      return [
+        `Log ${index + 1}`,
+        `User Message: ${log.user_message}`,
+        `Bot Reply: ${log.bot_reply}`,
+        `Answer Source: ${log.answer_source}`,
+        `Created At: ${log.created_at}`,
+        `----------------------------------------`
+      ].join("\n");
+    }).join("\n\n");
 
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.send(formattedLogs);
   } catch (error) {
     console.error("Log fetch error:", error);
-    res.status(500).json({ error: "Failed to fetch chat logs." });
+    res.status(500).send("Failed to fetch chat logs.");
   }
 });
 
@@ -144,19 +163,26 @@ app.post("/api/chat", async (req, res) => {
     let reply = "";
     let source = "";
 
-    const faqMatch = await findFAQ(message);
+    const faqs = await findRelevantFAQs(message)
 
-    if (faqMatch) {
-      reply = faqMatch.answer;
-      source = "database";
-      } else {
+    let context = "No relevant data found.";
+
+if (faqs.length > 0) {
+  context = faqs.map((f, i) =>
+    Q${i + 1}: ${f.question}\nA${i + 1}: ${f.answer}
+  ).join("\n\n");
+}
       const systemPrompt = `
 You are a helpful AI assistant for a local T-shirt shop.
 
-If the user asks a general question, answer clearly and politely.
-If exact business information is not available in the knowledge base, do not invent details.
-      `;
+Use the context below to answer the user's question.
+If the answer is in the context, use it.
+If not, say you don’t have exact business info.
+Do NOT invent details.
 
+Context:
+${context}
+`;
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -184,7 +210,7 @@ If exact business information is not available in the knowledge base, do not inv
         data?.choices?.[0]?.message?.content ||
         "Sorry, I could not generate a response.";
 
-      source = "openrouter";
+        source = faqs.length > 0 ? "rag+openrouter" : "openrouter";
     }
 
     await pool.query(
