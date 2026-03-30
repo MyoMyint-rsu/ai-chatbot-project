@@ -119,12 +119,14 @@ app.post("/api/faq", async (req, res) => {
 app.get("/api/logs", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT id, session_id, user_message, bot_reply, answer_source, created_at
+      SELECT user_message, bot_reply, answer_source
       FROM chat_messages
       ORDER BY created_at DESC
     `);
 
-    res.json(result.rows);
+    res.setHeader("Content-Type", "application/json");
+    res.send(JSON.stringify(result.rows, null, 2));
+
   } catch (error) {
     console.error("Log fetch error:", error);
     res.status(500).json({ error: "Failed to fetch chat logs." });
