@@ -165,12 +165,12 @@ app.post("/api/chat", async (req, res) => {
 
     const faqs = await findRelevantFAQs(message)
 
-    let context = "No relevant data found.";
+let context = "No relevant data found.";
 
 if (faqs.length > 0) {
-  context = faqs.map((f, i) =>
-    `Q${i + 1}: ${f.question}\nA${i + 1}: ${f.answer}
-  ).join("\n\n");
+  context = faqs
+    .map((f, i) => `Q${i + 1}: ${f.question}\nA${i + 1}: ${f.answer}`)
+    .join("\n\n");
 }
       const systemPrompt = `
 You are a helpful AI assistant for a local T-shirt shop.
