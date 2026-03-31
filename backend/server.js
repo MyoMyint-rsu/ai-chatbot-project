@@ -87,6 +87,21 @@ async function findRelevantFAQs(message) {
 app.get("/api/faq", async (req, res) => {
   try {
     const result = await pool.query(`
+      SELECT id, question, answer, keywords, category, is_active, created_at
+      FROM faq_items
+      ORDER BY id ASC
+    `);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("FAQ fetch error:", error);
+    res.status(500).json({ error: "Failed to fetch FAQ data." });
+  }
+});
+
+app.get("/api/faq-view", async (req, res) => {
+  try {
+    const result = await pool.query(`
       SELECT question, answer, keywords, category, is_active, created_at
       FROM faq_items
       ORDER BY id ASC
@@ -108,7 +123,7 @@ app.get("/api/faq", async (req, res) => {
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.send(formattedFaq);
   } catch (error) {
-    console.error("FAQ fetch error:", error);
+    console.error("FAQ view error:", error);
     res.status(500).send("Failed to fetch FAQ data.");
   }
 });
